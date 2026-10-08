@@ -1,5 +1,5 @@
 {
-  "name": "Yonda IG Bot — Phase 0 (echo test)",
+  "name": "Yonda IG Bot — Phase 0 (echo test, Facebook Login)",
   "nodes": [
     {
       "parameters": {
@@ -66,7 +66,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Фаза 0: разбор событий Instagram + конфиг\n// ⚠️ Токены сюда только на время Фазы 0 и НЕ коммитить в git. В Фазе 1 — credentials n8n.\nconst CONFIG = {\n  IG_TOKEN: 'ЗАМЕНИТЬ_instagram_user_access_token',\n  IG_USER_ID: 'ЗАМЕНИТЬ_ig_user_id',\n  TG_BOT_TOKEN: 'ЗАМЕНИТЬ_telegram_bot_token',\n  TG_CHAT_ID: 'ЗАМЕНИТЬ_telegram_group_chat_id',\n};\n\nconst body = $json.body || {};\nconst out = [];\nfor (const entry of body.entry || []) {\n  for (const ev of entry.messaging || []) {\n    const m = ev.message || {};\n    const referral = ev.referral || m.referral || (ev.postback && ev.postback.referral) || null;\n    out.push({ json: {\n      ...CONFIG,\n      object: body.object,\n      sender_id: ev.sender && ev.sender.id,\n      recipient_id: ev.recipient && ev.recipient.id,\n      is_echo: !!m.is_echo,\n      text: m.text || null,\n      attachments: (m.attachments || []).map(a => a.type),\n      postback: ev.postback ? (ev.postback.payload || ev.postback.title) : null,\n      referral,\n      raw: ev,\n    }});\n  }\n  // на случай если события придут в формате changes[]\n  for (const ch of entry.changes || []) {\n    out.push({ json: { ...CONFIG, object: body.object, is_echo: false, changes_field: ch.field, raw: ch } });\n  }\n}\nif (!out.length) out.push({ json: { ...CONFIG, object: body.object, is_echo: false, empty: true, raw: body } });\nreturn out;\n"
+        "jsCode": "// Фаза 0: разбор событий Instagram + конфиг\n// ⚠️ Токены сюда только на время Фазы 0 и НЕ коммитить в git. В Фазе 1 — credentials n8n.\nconst CONFIG = {\n  PAGE_TOKEN: 'ЗАМЕНИТЬ_page_access_token',   // бессрочный токен страницы Facebook Yonda\n  PAGE_ID: 'ЗАМЕНИТЬ_page_id',                 // ID страницы Facebook, привязанной к Instagram Yonda\n  TG_BOT_TOKEN: 'ЗАМЕНИТЬ_telegram_bot_token',\n  TG_CHAT_ID: 'ЗАМЕНИТЬ_telegram_group_chat_id',\n};\n\nconst body = $json.body || {};\nconst out = [];\nfor (const entry of body.entry || []) {\n  for (const ev of entry.messaging || []) {\n    const m = ev.message || {};\n    const referral = ev.referral || m.referral || (ev.postback && ev.postback.referral) || null;\n    out.push({ json: {\n      ...CONFIG,\n      object: body.object,\n      sender_id: ev.sender && ev.sender.id,\n      recipient_id: ev.recipient && ev.recipient.id,\n      is_echo: !!m.is_echo,\n      text: m.text || null,\n      attachments: (m.attachments || []).map(a => a.type),\n      postback: ev.postback ? (ev.postback.payload || ev.postback.title) : null,\n      referral,\n      raw: ev,\n    }});\n  }\n  // на случай если события придут в формате changes[]\n  for (const ch of entry.changes || []) {\n    out.push({ json: { ...CONFIG, object: body.object, is_echo: false, changes_field: ch.field, raw: ch } });\n  }\n}\nif (!out.length) out.push({ json: { ...CONFIG, object: body.object, is_echo: false, empty: true, raw: body } });\nreturn out;\n"
       },
       "id": "ccf12dad-e6ea-4701-9d0f-573d8402954f",
       "name": "Parse events",
@@ -111,20 +111,21 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.instagram.com/v26.0/{{ $json.IG_USER_ID }}/messages",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $json.IG_TOKEN }}"
-            }
-          ]
-        },
+        "url": "=https://graph.facebook.com/v26.0/{{ $json.PAGE_ID }}/messages",
+        "sendHeaders": false,
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ recipient: { id: $json.sender_id }, message: { text: $json.reply } }) }}",
-        "options": {}
+        "options": {},
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{ $json.PAGE_TOKEN }}"
+            }
+          ]
+        }
       },
       "id": "b8c747a8-cf0d-48da-b1bf-e78967bb6f4f",
       "name": "IG: send echo reply",
@@ -148,7 +149,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Те же значения, что в «Parse events»\nreturn [{ json: { IG_TOKEN: 'ЗАМЕНИТЬ_instagram_user_access_token' } }];"
+        "jsCode": "// Те же значения, что в «Parse events»\nreturn [{ json: { PAGE_TOKEN: 'ЗАМЕНИТЬ_page_access_token', PAGE_ID: 'ЗАМЕНИТЬ_page_id' } }];"
       },
       "id": "0a552cd2-598d-48f6-b30e-a97e35d6e93c",
       "name": "Setup config",
@@ -162,24 +163,24 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.instagram.com/v26.0/me/subscribed_apps",
+        "url": "=https://graph.facebook.com/v26.0/{{ $json.PAGE_ID }}/subscribed_apps",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
             {
               "name": "subscribed_fields",
-              "value": "messages,messaging_postbacks,messaging_referral"
+              "value": "messages,messaging_postbacks,messaging_referrals"
             },
             {
               "name": "access_token",
-              "value": "={{ $json.IG_TOKEN }}"
+              "value": "={{ $json.PAGE_TOKEN }}"
             }
           ]
         },
         "options": {}
       },
       "id": "a8c3c8d1-6618-4e73-8775-1d498c0fc296",
-      "name": "IG: subscribe webhook fields",
+      "name": "Page: subscribe app",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -190,23 +191,27 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.instagram.com/v26.0/me/messenger_profile",
+        "url": "=https://graph.facebook.com/v26.0/me/messenger_profile",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
             {
+              "name": "platform",
+              "value": "instagram"
+            },
+            {
               "name": "access_token",
-              "value": "={{ $json.IG_TOKEN }}"
+              "value": "={{ $json.PAGE_TOKEN }}"
             }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "{\"platform\": \"instagram\", \"persistent_menu\": [{\"locale\": \"default\", \"call_to_actions\": [{\"type\": \"postback\", \"title\": \"Связаться с менеджером\", \"payload\": \"CALL_MANAGER\"}]}]}",
+        "jsonBody": "{\"persistent_menu\": [{\"locale\": \"default\", \"call_to_actions\": [{\"type\": \"postback\", \"title\": \"Связаться с менеджером\", \"payload\": \"CALL_MANAGER\"}]}]}",
         "options": {}
       },
       "id": "ef473304-c266-414a-bbfa-5fca74c08287",
-      "name": "IG: set persistent menu (verify body!)",
+      "name": "IG: set persistent menu",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -291,12 +296,12 @@
       "main": [
         [
           {
-            "node": "IG: subscribe webhook fields",
+            "node": "Page: subscribe app",
             "type": "main",
             "index": 0
           },
           {
-            "node": "IG: set persistent menu (verify body!)",
+            "node": "IG: set persistent menu",
             "type": "main",
             "index": 0
           }

@@ -22,23 +22,43 @@
 | 1.4 | **Тестовый Instagram-аккаунт** — обычный личный аккаунт, у которого **нет роли** в приложении Meta | Любой второй аккаунт (свой или сотрудника) |
 | 1.5 | Telegram: бот + группа менеджеров | @BotFather → `/newbot` → сохранить токен. Создать группу, добавить в неё бота, написать в группу любое сообщение, открыть `https://api.telegram.org/bot<TOKEN>/getUpdates`, найти `chat.id` (у групп он отрицательный, например `-100…`) |
 
-## Шаг 2. Приложение Meta (≈30–60 мин)
+## Шаг 2. Приложение Meta и токен страницы (≈30–60 мин)
 
-1. developers.facebook.com → **Create App** → сценарий использования про Instagram-сообщения: **Instagram API with Instagram Login** (не вариант через Facebook Login / страницу).
-2. В приложении: Instagram → **API setup with Instagram login** → **Add account** → войти в аккаунт Yonda.
-3. **Generate token** для аккаунта Yonda. Сохранить:
-   - `IG_TOKEN`: токен живёт 60 дней;
-   - `IG_USER_ID`: ID аккаунта, показан рядом с токеном.
-4. Проверить разрешения: `instagram_business_basic`, `instagram_business_manage_messages`.
-5. Раздел вебхуков пока не трогаем, сначала нужен адрес из n8n (шаг 3).
+> Путь **через вход Facebook** (D23): в кабинете Meta сценарий «Instagram-сообщения» предлагает только его. Нужна **страница Facebook, привязанная к Instagram Yonda**.
+
+**2.0. Проверить привязку страницы.** Meta Business Suite → Настройки → Аккаунты: у страницы Facebook Yonda должен быть подключён Instagram-аккаунт Yonda. Если страницы нет или она не привязана, остановись и напиши мне.
+
+**2.1. Приложение.** Уже создано (`chatbot`, сценарий «Instagram API», вариант «Настройка API для входа на Facebook»). Ничего нового создавать не нужно.
+
+**2.2. Получить токен пользователя** в [Graph API Explorer](https://developers.facebook.com/tools/explorer/):
+1. Справа **Meta App** → `chatbot`.
+2. **User or Page** → «Получить маркер доступа пользователя» (Get User Access Token).
+3. В **Permissions** добавить: `instagram_basic`, `instagram_manage_messages`, `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, `business_management`.
+4. **Generate Access Token** → в окне Facebook выбрать **страницу Yonda** и **Instagram Yonda** → разрешить.
+
+**2.3. Продлить токен пользователя** (иначе он живёт ~1 час):
+[Access Token Debugger](https://developers.facebook.com/tools/debug/accesstoken/) → вставить токен → **Debug** → внизу **Extend Access Token** → скопировать новый (долгосрочный) токен.
+
+**2.4. Получить бессрочный токен страницы:** снова в Graph API Explorer вставить долгосрочный токен в поле Access Token и выполнить запрос
+```
+GET me/accounts?fields=id,name,access_token,instagram_business_account
+```
+В ответе найти страницу Yonda и сохранить:
+- `PAGE_ID`: поле `id`;
+- `PAGE_TOKEN`: поле `access_token` этой страницы;
+- `instagram_business_account.id`: ID Instagram Yonda (для справки).
+
+Проверка: вставить `PAGE_TOKEN` в Access Token Debugger. Должно быть **Type: Page** и **Expires: Never**. Если срок не «Never», значит, на шаге 2.4 использован короткий токен: повтори шаг 2.3.
+
+> 🔒 `PAGE_TOKEN` — ключ от сообщений Yonda. Никому не пересылать и не коммитить в git.
 
 ## Шаг 3. Сценарий n8n (≈20 мин)
 
 1. n8n → Workflows → **Import from file** → `n8n/phase0_echo_test.json` из этого репозитория.
 2. Заменить значения `ЗАМЕНИТЬ_…`:
    - узел **Check verify token** → `VERIFY_TOKEN`: придумай любую строку, например `yonda_phase0_7f3k`;
-   - узел **Parse events** → `IG_TOKEN`, `IG_USER_ID`, `TG_BOT_TOKEN`, `TG_CHAT_ID`;
-   - узел **Setup config** → `IG_TOKEN`;
+   - узел **Parse events** → `PAGE_TOKEN`, `PAGE_ID`, `TG_BOT_TOKEN`, `TG_CHAT_ID`;
+   - узел **Setup config** → `PAGE_TOKEN`, `PAGE_ID`;
    - узел **Only client messages** → `ALLOWED_SENDERS` пока оставить пустым (см. шаг 5.0).
 
    > 🛡 **Защита реальных клиентов.** Реклама Yonda крутится, поэтому в Direct во время теста будут писать настоящие клиенты. Сценарий отвечает **только** IGSID из `ALLOWED_SENDERS`, остальные сообщения лишь логируются в TG. Клиентам по-прежнему отвечаете вы вручную, как обычно.
@@ -49,16 +69,17 @@
 
 ## Шаг 4. Вебхук в Meta (≈15 мин)
 
-1. Приложение Meta → Instagram → **Configure webhooks**:
+1. Приложение `chatbot` → Сценарии использования → Instagram API → **Webhooks**:
+   - в списке объектов выбрать **Instagram** (не Page);
    - Callback URL = Production URL из шага 3.4;
    - Verify token = `VERIFY_TOKEN` из шага 3.2;
-   - **Verify and save**. Если n8n вернул challenge, Meta сохранит адрес. Если нет, проверь, что сценарий активен и токен совпадает.
-2. Подписаться на поля: **messages**, **messaging_postbacks**, **messaging_referral** (если доступны: messaging_seen и messaging_reactions для MVP не нужны).
+   - **Подтвердить и сохранить**. Если n8n вернул challenge, Meta сохранит адрес. Если нет, проверь, что сценарий активен и токен совпадает.
+2. Подписаться на поля объекта Instagram: **messages**, **messaging_postbacks**, **messaging_referral** (если есть в списке). Остальные поля для MVP не нужны.
 3. В n8n запустить ветку **Run once: setup** (кнопка Execute на узле `Run once: setup`). Она:
-   - подписывает аккаунт на поля вебхука (`/me/subscribed_apps`);
-   - ставит постоянное меню «Связаться с менеджером».
+   - подключает приложение к странице (`/{PAGE_ID}/subscribed_apps`): без этого вебхуки Instagram не приходят;
+   - ставит постоянное меню «Связаться с менеджером» (`/me/messenger_profile?platform=instagram`).
 
-   Ответ каждого HTTP-узла скопируй в таблицу результатов. **Формат тела запроса для меню взят не из официального примера Meta** (найти его не удалось). Если узел вернул ошибку, пришли её текст мне, я поправлю.
+   Ответ каждого HTTP-узла скопируй в таблицу результатов. Ожидаемый ответ: `{"success": true}`. Если пришла ошибка, пришли мне её текст: названия полей подписки на уровне страницы я проверял только по документации Messenger.
 
 ## Шаг 5. Тесты
 
@@ -69,7 +90,7 @@
 | # | Тест | Как | Что смотрим |
 |---|---|---|---|
 | **T1** | Сообщение от постороннего | С тестового аккаунта (без роли в приложении) написать Yonda «Привет» | Пришло ли событие в TG? Ответил ли бот «Фаза 0 ✅…»? |
-| **T1b** | Если T1 не прошёл | Добавить тестовый аккаунт тестером приложения (App roles → Instagram Testers), повторить | Если с ролью работает, а без неё нет, приложение нужно переключить в **Live**. Для этого нужна ссылка на политику конфиденциальности. App Review для Standard Access, по документации, не требуется |
+| **T1b** | Если T1 не прошёл | Проверить, что у тестового аккаунта нет роли в приложении, затем переключить приложение в **Live** (Опубликовать) и повторить | Пришло ли событие после перевода в Live? Для публикации Meta попросит ссылку на политику конфиденциальности и, возможно, Business Verification. Если не работает и в Live, решаем на Gate (App Review или ManyChat) |
 | **T2** | Клик по рекламе | С тестового аккаунта найти **действующую** Click-to-Direct рекламу Yonda, нажать «Отправить сообщение», отправить | В ответе бота и в TG есть `referral`: `source=ADS`, `ad_id=…`? Какой ad_id и совпадает ли он с Ads Manager? Есть ли `ads_context_data`? |
 | **T3** | Повторный клик | Тем же тестовым аккаунтом (диалог уже есть) кликнуть по **другой** рекламе | Пришёл ли новый `referral`: в сообщении или отдельным событием? |
 | **T4** | Постоянное меню | На тестовом аккаунте открыть диалог с Yonda: в мобильном приложении и в веб-версии | Видно ли меню? При нажатии «Связаться с менеджером» бот отвечает `Кнопка меню: CALL_MANAGER`? |
