@@ -34,6 +34,7 @@
 1. Справа **Meta App** → `chatbot`.
 2. **User or Page** → «Получить маркер доступа пользователя» (Get User Access Token).
 3. В **Permissions** добавить: `instagram_basic`, `instagram_manage_messages`, `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, `business_management`.
+   > Если какого-то разрешения нет в списке Explorer или оно не попадает в токен, сначала добавь его в приложении: Сценарии использования → Instagram API → **Разрешения и функции** → «Добавить». **`pages_manage_metadata` обязателен**: без него не сработает подключение приложения к странице (шаг 4.3).
 4. **Generate Access Token** → в окне Facebook выбрать **страницу Yonda** и **Instagram Yonda** → разрешить.
 
 **2.3. Продлить токен пользователя** (иначе он живёт ~1 час):
