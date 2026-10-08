@@ -1,0 +1,311 @@
+{
+  "name": "Yonda IG Bot — Phase 0 (echo test)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "yonda-ig",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "8f619fce-e82d-476e-bd12-306cd63dbe26",
+      "name": "IG Webhook (GET verify)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "2b4f8632-8daa-4f05-86f5-70e4abf95f14"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Фаза 0: проверка вебхука Meta (GET hub.challenge)\nconst VERIFY_TOKEN = 'ЗАМЕНИТЬ_verify_token'; // тот же, что в настройках вебхука Meta\n\nconst q = $json.query || {};\nconst ok = q['hub.mode'] === 'subscribe' && q['hub.verify_token'] === VERIFY_TOKEN;\nreturn [{ json: { ok, challenge: q['hub.challenge'] || '' } }];\n"
+      },
+      "id": "85494798-3832-4eb7-b093-2f4fd4a76c59",
+      "name": "Check verify token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.ok ? $json.challenge : 'forbidden' }}",
+        "options": {
+          "responseCode": "={{ $json.ok ? 200 : 403 }}"
+        }
+      },
+      "id": "9e33833b-92f3-4373-9ad5-6b9f4ff34704",
+      "name": "Respond challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "yonda-ig",
+        "options": {}
+      },
+      "id": "2574733f-5c82-475b-a377-79b0025d4104",
+      "name": "IG Webhook (POST events)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        260
+      ],
+      "webhookId": "d355c683-fc60-47bc-86a6-883b1029716d"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Фаза 0: разбор событий Instagram + конфиг\n// ⚠️ Токены сюда только на время Фазы 0 и НЕ коммитить в git. В Фазе 1 — credentials n8n.\nconst CONFIG = {\n  IG_TOKEN: 'ЗАМЕНИТЬ_instagram_user_access_token',\n  IG_USER_ID: 'ЗАМЕНИТЬ_ig_user_id',\n  TG_BOT_TOKEN: 'ЗАМЕНИТЬ_telegram_bot_token',\n  TG_CHAT_ID: 'ЗАМЕНИТЬ_telegram_group_chat_id',\n};\n\nconst body = $json.body || {};\nconst out = [];\nfor (const entry of body.entry || []) {\n  for (const ev of entry.messaging || []) {\n    const m = ev.message || {};\n    const referral = ev.referral || m.referral || (ev.postback && ev.postback.referral) || null;\n    out.push({ json: {\n      ...CONFIG,\n      object: body.object,\n      sender_id: ev.sender && ev.sender.id,\n      recipient_id: ev.recipient && ev.recipient.id,\n      is_echo: !!m.is_echo,\n      text: m.text || null,\n      attachments: (m.attachments || []).map(a => a.type),\n      postback: ev.postback ? (ev.postback.payload || ev.postback.title) : null,\n      referral,\n      raw: ev,\n    }});\n  }\n  // на случай если события придут в формате changes[]\n  for (const ch of entry.changes || []) {\n    out.push({ json: { ...CONFIG, object: body.object, is_echo: false, changes_field: ch.field, raw: ch } });\n  }\n}\nif (!out.length) out.push({ json: { ...CONFIG, object: body.object, is_echo: false, empty: true, raw: body } });\nreturn out;\n"
+      },
+      "id": "ccf12dad-e6ea-4701-9d0f-573d8402954f",
+      "name": "Parse events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $json.TG_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.TG_CHAT_ID, text: ('🧪 Фаза 0 | echo=' + $json.is_echo + '\\n' + JSON.stringify($json.raw, null, 1)).slice(0, 4000) }) }}",
+        "options": {}
+      },
+      "id": "43f18b87-acdc-4bb3-b836-c02fb05fa20c",
+      "name": "TG: raw event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Отвечаем ТОЛЬКО тестовым аккаунтам из списка — реальные клиенты эхо не получат.\n// Пусто = никому не отвечаем, только логируем в TG. IGSID тестового аккаунта берём из первого сырого события в TG (sender.id).\nconst ALLOWED_SENDERS = []; // например ['1784000000000001']\n\nreturn $input.all().filter(i => !i.json.is_echo && i.json.sender_id && !i.json.changes_field && !i.json.empty\n    && ALLOWED_SENDERS.includes(String(i.json.sender_id)))\n  .map(i => {\n    const j = i.json;\n    const r = j.referral || {};\n    const parts = ['Фаза 0 ✅ бот получил сообщение.'];\n    if (j.text) parts.push(`Текст: «${j.text}»`);\n    if (j.attachments.length) parts.push(`Вложения: ${j.attachments.join(', ')}`);\n    if (j.postback) parts.push(`Кнопка меню: ${j.postback}`);\n    parts.push(j.referral ? `Реклама: source=${r.source || '-'}, ad_id=${r.ad_id || '-'}, ref=${r.ref || '-'}` : 'Реклама: referral не пришёл');\n    return { json: { ...j, reply: parts.join('\\n') } };\n  });\n"
+      },
+      "id": "eb1c3aac-d47d-46b9-98fc-c24660dd2402",
+      "name": "Only client messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.instagram.com/v26.0/{{ $json.IG_USER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.IG_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ recipient: { id: $json.sender_id }, message: { text: $json.reply } }) }}",
+        "options": {}
+      },
+      "id": "b8c747a8-cf0d-48da-b1bf-e78967bb6f4f",
+      "name": "IG: send echo reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        360
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "3d1cbac4-66b9-468d-87cd-3fdb40337b5c",
+      "name": "Run once: setup",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Те же значения, что в «Parse events»\nreturn [{ json: { IG_TOKEN: 'ЗАМЕНИТЬ_instagram_user_access_token' } }];"
+      },
+      "id": "0a552cd2-598d-48f6-b30e-a97e35d6e93c",
+      "name": "Setup config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.instagram.com/v26.0/me/subscribed_apps",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "subscribed_fields",
+              "value": "messages,messaging_postbacks,messaging_referral"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $json.IG_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a8c3c8d1-6618-4e73-8775-1d498c0fc296",
+      "name": "IG: subscribe webhook fields",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.instagram.com/v26.0/me/messenger_profile",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{ $json.IG_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"platform\": \"instagram\", \"persistent_menu\": [{\"locale\": \"default\", \"call_to_actions\": [{\"type\": \"postback\", \"title\": \"Связаться с менеджером\", \"payload\": \"CALL_MANAGER\"}]}]}",
+        "options": {}
+      },
+      "id": "ef473304-c266-414a-bbfa-5fca74c08287",
+      "name": "IG: set persistent menu (verify body!)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        720
+      ]
+    }
+  ],
+  "connections": {
+    "IG Webhook (GET verify)": {
+      "main": [
+        [
+          {
+            "node": "Check verify token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check verify token": {
+      "main": [
+        [
+          {
+            "node": "Respond challenge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IG Webhook (POST events)": {
+      "main": [
+        [
+          {
+            "node": "Parse events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse events": {
+      "main": [
+        [
+          {
+            "node": "TG: raw event",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Only client messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only client messages": {
+      "main": [
+        [
+          {
+            "node": "IG: send echo reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run once: setup": {
+      "main": [
+        [
+          {
+            "node": "Setup config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Setup config": {
+      "main": [
+        [
+          {
+            "node": "IG: subscribe webhook fields",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IG: set persistent menu (verify body!)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

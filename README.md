@@ -6,5 +6,8 @@ MVP: бот ведёт горячих лидов из рекламы Click-to-Di
 |---|---|
 | [docs/PRD.md](docs/PRD.md) | Требования MVP: объём, архитектура, модель данных, план, риски |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Журнал решений с обоснованиями |
+| [docs/PHASE0.md](docs/PHASE0.md) | Пошаговая инструкция Фазы 0 и таблица результатов |
+| [templates/yonda_bot_template.xlsx](templates/yonda_bot_template.xlsx) | Шаблон Google-таблицы (загрузить в Google Sheets) |
+| [n8n/phase0_echo_test.json](n8n/phase0_echo_test.json) | Тестовый сценарий n8n для Фазы 0 (импорт, токены вписать в n8n, не в git) |
 
 Стек: n8n · Instagram Graph API · Claude Haiku 5.5 · Google Sheets · Supabase · Telegram Bot API.
