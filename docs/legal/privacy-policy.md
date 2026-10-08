@@ -1,8 +1,8 @@
 # Политика конфиденциальности Yonda Cards
 
-*Редакция от [ДАТА ПУБЛИКАЦИИ]*
+*Редакция от 8 октября 2026 г.*
 
-Настоящая политика описывает, какие данные собирает и как обрабатывает **[ЮРИДИЧЕСКОЕ НАИМЕНОВАНИЕ / ИП ФИО]** (далее — «Yonda Cards», «мы»), когда вы пишете нам в Instagram Direct (@[ник аккаунта]), в том числе нашему автоматическому помощнику.
+Настоящая политика описывает, какие данные собирает и как обрабатывает **YONDA CARDS** (далее — «Yonda Cards», «мы»), когда вы пишете нам в Instagram Direct (@yondacards), в том числе нашему автоматическому помощнику.
 
 ## 1. Какие данные мы получаем
 
@@ -45,7 +45,7 @@
 
 ## 5. Сколько мы храним данные
 
-- Переписка и данные заявок хранятся **[12 месяцев]** с последнего сообщения, затем удаляются.
+- Переписка и данные заявок хранятся **12 месяцев** с последнего сообщения, затем удаляются.
 - Данные о выполненных заказах хранятся столько, сколько этого требует законодательство о бухгалтерском учёте.
 
 ## 6. Ваши права и удаление данных
@@ -53,23 +53,23 @@
 Вы можете запросить копию своих данных, их исправление или удаление. Для этого:
 
 1. напишите нам в Instagram Direct слово **«Удалить мои данные»**, или
-2. отправьте письмо на **[EMAIL]** с указанием вашего ника в Instagram.
+2. отправьте письмо на **sh.orifjonov9902@gmail.com** с указанием вашего ника в Instagram.
 
 Мы удалим ваши данные в течение **30 дней** и подтвердим удаление в ответном сообщении. Данные о заказах, которые мы обязаны хранить по закону, удаляются по истечении установленного срока.
 
 ## 7. Контакты
 
-**[ЮРИДИЧЕСКОЕ НАИМЕНОВАНИЕ / ИП ФИО]**
-Адрес: [АДРЕС]
-Email: [EMAIL] · Телефон: [ТЕЛЕФОН] · Instagram: @[ник]
+**YONDA CARDS**
+Адрес: г. Ташкент, Яккасарайский район, ул. Мукими, 1
+Email: sh.orifjonov9902@gmail.com · Телефон: +998 90 907 40 21 · Instagram: @yondacards
 
 ---
 
 # Privacy Policy — Yonda Cards
 
-*Effective [DATE]*
+*Effective October 8, 2026*
 
-This policy explains how **[LEGAL NAME]** ("Yonda Cards", "we") collects and uses data when you message us on Instagram Direct (@[handle]), including our automated assistant.
+This policy explains how **YONDA CARDS** ("Yonda Cards", "we") collects and uses data when you message us on Instagram Direct (@yondacards), including our automated assistant.
 
 **Data we receive:** your Instagram username, display name and Instagram-scoped ID; the content of our conversation (messages, photos, voice notes); order details you provide (phone number, delivery address, preferred delivery time, selected products); payment screenshots you send; and the ID of the ad that led you to message us, as provided by Meta. We never collect or store card details. Payments are processed by Click and Payme.
 
@@ -79,8 +79,8 @@ This policy explains how **[LEGAL NAME]** ("Yonda Cards", "we") collects and use
 
 **Service providers:** Meta (messaging), Anthropic (AI replies), Google Sheets (order records), Supabase (conversation storage), n8n (automation), Telegram (staff notifications), and the courier service (name, phone and address only). Some providers' servers may be located outside Uzbekistan.
 
-**Retention:** conversations and leads are kept for [12 months] after the last message. Completed order records are kept as long as accounting law requires.
+**Retention:** conversations and leads are kept for 12 months after the last message. Completed order records are kept as long as accounting law requires.
 
-**Your rights and data deletion:** to access, correct or delete your data, send "Delete my data" in Instagram Direct or email [EMAIL] with your Instagram handle. We delete your data within 30 days and confirm by message.
+**Your rights and data deletion:** to access, correct or delete your data, send "Delete my data" in Instagram Direct or email sh.orifjonov9902@gmail.com with your Instagram handle. We delete your data within 30 days and confirm by message.
 
-**Contact:** [LEGAL NAME], [ADDRESS], [EMAIL], [PHONE].
+**Contact:** YONDA CARDS, 1 Mukimi St., Yakkasaray District, Tashkent, Uzbekistan, sh.orifjonov9902@gmail.com, +998 90 907 40 21.
