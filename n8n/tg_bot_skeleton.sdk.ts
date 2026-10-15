@@ -1,6 +1,7 @@
-import { workflow, node, trigger, sticky, newCredential, ifElse, switchCase, expr } from '@n8n/workflow-sdk';
+import { workflow, node, trigger, sticky, ifElse, switchCase, languageModel, outputParser, expr } from '@n8n/workflow-sdk';
 
-const tgCred = { telegramApi: newCredential('Yonda TG bot') };
+const tgCred = { telegramApi: { id: 'i8evYyOAUjBo3Luu', name: 'Telegram account' } };
+const geminiCred = { googlePalmApi: { id: '0P7gKaEnFx7Wj1dP', name: 'Google Gemini(PaLM) Api account' } };
 const leadsTable = { __rl: true, mode: 'id', value: 'wRVvqouuZVpKI1G0', cachedResultName: 'yonda_leads' };
 const msgsTable = { __rl: true, mode: 'id', value: '0LvOQFdodU8uLaNn', cachedResultName: 'yonda_messages' };
 const managersChatId = '-5019520873';
@@ -324,24 +325,20 @@ const combine = node({
     parameters: {
       mode: 'runOnceForAllItems',
       language: 'javaScript',
-      jsCode: `// Склеиваем сообщения, пришедшие подряд, и решаем: ответить или позвать менеджера.
-// Временно по ключевым словам; на следующем шаге это решение примет ИИ.
+      jsCode: `// Склеиваем сообщения, пришедшие подряд, в один запрос к ИИ
 const lead = $('Состояние лида').first().json;
 const combined = $input.all().map(i => i.json.text).filter(Boolean).join('\\n');
-const wantsManager = /менеджер|оператор|живой человек|позовите человека|operator|menejer/i.test(combined);
 return [{ json: {
   user_id: lead.user_id,
   username: lead.username,
   name: lead.name,
   ad_ref: lead.lead_ad_ref,
   status: lead.status,
-  combined,
-  action: wantsManager ? 'escalate' : 'reply',
-  reason: wantsManager ? 'клиент просит менеджера' : ''
+  combined
 } }];`
     }
   },
-  output: [{ user_id: '111', username: 'client', name: 'Малика', ad_ref: '', status: 'Новый', combined: 'Привет', action: 'reply', reason: '' }]
+  output: [{ user_id: '111', username: 'client', name: 'Малика', ad_ref: '', status: 'Новый', combined: 'Привет' }]
 });
 
 const markDone = node({
@@ -375,7 +372,7 @@ const routeReply = switchCase({
   version: 3.4,
   config: {
     name: 'Ответить или позвать менеджера',
-    position: [2900, 520],
+    position: [3780, 520],
     parameters: {
       mode: 'rules',
       rules: {
@@ -389,24 +386,139 @@ const routeReply = switchCase({
   }
 });
 
-const coreStub = node({
+const getHistory = node({
+  type: 'n8n-nodes-base.dataTable',
+  version: 1.1,
+  config: {
+    name: 'История диалога',
+    position: [2900, 520],
+    parameters: {
+      resource: 'row',
+      operation: 'get',
+      dataTableId: msgsTable,
+      matchType: 'allConditions',
+      filters: { conditions: [{ keyName: 'user_id', condition: 'eq', keyValue: expr('{{ $json.user_id }}') }] },
+      returnAll: false,
+      limit: 20,
+      orderBy: true,
+      orderByColumn: 'createdAt',
+      orderByDirection: 'DESC'
+    }
+  },
+  output: [{ id: 5, user_id: '111', role: 'user', text: 'Привет', msg_id: '10', batch_done: false }]
+});
+
+const buildContext = node({
   type: 'n8n-nodes-base.code',
   version: 2,
   config: {
-    name: 'Ядро бота (заглушка ИИ)',
-    position: [3140, 420],
+    name: 'Контекст для ИИ',
+    position: [3120, 520],
     parameters: {
       mode: 'runOnceForAllItems',
       language: 'javaScript',
-      jsCode: `// ЗАГЛУШКА: здесь будет Claude Haiku 5.5 со скриптами и каталогом из Google-таблицы.
-// Вход: склеенный текст и состояние лида. Выход: reply (текст ответа) и new_status.
-const d = $input.first().json;
-const esc = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const reply = 'Спасибо! Получили ваше сообщение:\\n«' + esc(d.combined) + '»\\n\\n(тестовый режим: ИИ-продавец будет подключён на следующем шаге)';
-return [{ json: { ...d, reply, new_status: d.status === 'Новый' ? 'В диалоге' : d.status } }];`
+      jsCode: `// Собираем для ИИ: данные лида + последние 20 сообщений в хронологическом порядке
+const d = $('Склейка и решение').first().json;
+const hist = $input.all().map(i => i.json).reverse();
+const transcript = hist.map(m => (m.role === 'bot' ? 'Магазин: ' : 'Клиент: ') + (m.text || '')).join('\\n');
+const prompt =
+  'Данные клиента:\\n' +
+  '- имя: ' + (d.name || 'не указано') + '\\n' +
+  '- пришёл по рекламе товара: ' + (d.ad_ref || 'неизвестно') + '\\n' +
+  '- текущий статус: ' + d.status + '\\n\\n' +
+  'Переписка (последнее внизу):\\n' + transcript + '\\n\\n' +
+  'Ответь на последние сообщения клиента.';
+return [{ json: { ...d, prompt } }];`
     }
   },
-  output: [{ user_id: '111', combined: 'Привет', reply: 'Спасибо!...', new_status: 'В диалоге' }]
+  output: [{ user_id: '111', username: 'client', name: 'Малика', ad_ref: '', status: 'Новый', combined: 'Привет', prompt: 'Данные клиента...' }]
+});
+
+const geminiModel = languageModel({
+  type: '@n8n/n8n-nodes-langchain.lmChatGoogleGemini',
+  version: 1.2,
+  config: {
+    name: 'Gemini (бесплатный, тест)',
+    position: [3340, 740],
+    parameters: { modelName: 'models/gemini-3-flash-preview', options: { temperature: 0.4, maxOutputTokens: 1024 } },
+    credentials: geminiCred
+  }
+});
+
+const replyParser = outputParser({
+  type: '@n8n/n8n-nodes-langchain.outputParserStructured',
+  version: 1.3,
+  config: {
+    name: 'Формат ответа ИИ',
+    position: [3500, 740],
+    parameters: {
+      schemaType: 'fromJson',
+      jsonSchemaExample: '{ "reply": "Здравствуйте! Расскажу подробнее об альбоме.", "escalate": false, "escalate_reason": "", "status": "В диалоге", "summary": "Клиент интересуется альбомом, спрашивает о составе." }'
+    }
+  }
+});
+
+const aiSeller = node({
+  type: '@n8n/n8n-nodes-langchain.chainLlm',
+  version: 1.9,
+  config: {
+    name: 'ИИ-продавец',
+    position: [3340, 520],
+    onError: 'continueRegularOutput',
+    parameters: {
+      promptType: 'define',
+      text: expr('{{ $json.prompt }}'),
+      hasOutputParser: true,
+      messages: {
+        messageValues: [
+          {
+            type: 'SystemMessagePromptTemplate',
+            message: 'Ты консультант интернет-магазина Yonda Cards в Ташкенте. Магазин продаёт готовые фотоальбомы. Ты пишешь клиенту в мессенджере от имени магазина: тепло, коротко, по делу, 1-4 предложения, можно 1-2 эмодзи (🤍 💌). Если клиент прямо спросит, бот ли ты, честно скажи, что ты помощник магазина и можешь позвать менеджера.\n\nЯЗЫК: отвечай на языке последнего сообщения клиента (русский или узбекский).\n\nТЕСТОВЫЙ РЕЖИМ: каталога с ценами и описаниями у тебя пока нет. НИКОГДА не придумывай цены, размеры, сроки, наличие и характеристики. Если клиент спрашивает о конкретном товаре или цене, вежливо скажи, что уточнишь у менеджера, и передай диалог менеджеру.\n\nОФОРМЛЕНИЕ ЗАКАЗА: когда клиент решил купить, попроси по очереди недостающее: номер телефона, удобное время получения, адрес доставки. Затем дай способы оплаты: Click https://indoor.click.uz/pay?id=0102906&t=0 или Payme https://transfer.paycom.uz/69f2022d050866cd0a35bac4 (также можно найти Yonda Cards в разделе Оплата на местах). Попроси прислать скриншот оплаты. Сообщи, что доставка оплачивается отдельно курьеру по тарифам Яндекс такси.\n\nНИКОГДА не подтверждай оплату сам. Когда клиент прислал скриншот оплаты (в переписке это строка с пометкой [photo]), поблагодари и передай менеджеру на проверку.\n\nПЕРЕДАЙ ДИАЛОГ МЕНЕДЖЕРУ (escalate = true), если: клиент просит человека или менеджера; жалоба или недовольство; просит скидку или торгуется; нестандартный заказ; вопрос о товаре или цене, на который у тебя нет данных; получен скриншот оплаты; ты не уверен, что ответить.\n\nПОЛЯ ОТВЕТА: reply — текст сообщения клиенту (без markdown и без HTML). escalate — передать ли менеджеру. escalate_reason — коротко почему (если escalate). status — один из: Новый, В диалоге, Выбрал товар, Ожидает оплаты, Ожидает проверки оплаты. summary — 1-2 предложения о сути диалога для менеджера.'
+          }
+        ]
+      }
+    },
+    subnodes: { model: geminiModel, outputParser: replyParser }
+  },
+  output: [{ output: { reply: 'Здравствуйте!', escalate: false, escalate_reason: '', status: 'В диалоге', summary: 'Клиент поздоровался.' } }]
+});
+
+const parseAi = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Разбор ответа ИИ',
+    position: [3560, 520],
+    parameters: {
+      mode: 'runOnceForAllItems',
+      language: 'javaScript',
+      jsCode: `// Проверяем ответ ИИ. Если ИИ упал или ответ пустой, передаём менеджеру, а не молчим.
+const ctx = $('Контекст для ИИ').first().json;
+const out = $input.first().json.output || null;
+const esc = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const allowed = ['Новый', 'В диалоге', 'Выбрал товар', 'Ожидает оплаты', 'Ожидает проверки оплаты'];
+const ok = out && typeof out.reply === 'string' && out.reply.trim().length > 0;
+const escalate = !ok || out.escalate === true;
+let reason = '';
+if (!ok) reason = 'ИИ не смог ответить';
+else if (escalate) reason = out.escalate_reason || 'ИИ передал менеджеру';
+const new_status = ok && allowed.includes(out.status) ? out.status : (ctx.status === 'Новый' ? 'В диалоге' : ctx.status);
+return [{ json: {
+  user_id: ctx.user_id,
+  username: ctx.username,
+  name: ctx.name,
+  ad_ref: ctx.ad_ref,
+  status: ctx.status,
+  combined: ctx.combined,
+  reply: ok ? esc(out.reply) : '',
+  summary: ok ? (out.summary || '') : '',
+  new_status,
+  action: escalate ? 'escalate' : 'reply',
+  reason
+} }];`
+    }
+  },
+  output: [{ user_id: '111', username: 'client', name: 'Малика', ad_ref: '', status: 'Новый', combined: 'Привет', reply: 'Здравствуйте!', summary: '', new_status: 'В диалоге', action: 'reply', reason: '' }]
 });
 
 const sendReply = node({
@@ -414,7 +526,7 @@ const sendReply = node({
   version: 1.2,
   config: {
     name: 'Ответ клиенту',
-    position: [3360, 420],
+    position: [4000, 420],
     parameters: {
       resource: 'message',
       operation: 'sendMessage',
@@ -433,7 +545,7 @@ const saveBotMsg = node({
   version: 1.1,
   config: {
     name: 'Сохранить ответ бота',
-    position: [3580, 420],
+    position: [4220, 420],
     parameters: {
       resource: 'row',
       operation: 'insert',
@@ -441,10 +553,10 @@ const saveBotMsg = node({
       columns: {
         mappingMode: 'defineBelow',
         value: {
-          user_id: expr("{{ $('Ядро бота (заглушка ИИ)').first().json.user_id }}"),
+          user_id: expr("{{ $('Разбор ответа ИИ').first().json.user_id }}"),
           channel: 'telegram',
           role: 'bot',
-          text: expr("{{ $('Ядро бота (заглушка ИИ)').first().json.reply }}"),
+          text: expr("{{ $('Разбор ответа ИИ').first().json.reply }}"),
           msg_id: expr('{{ String($json.result?.message_id ?? "") }}'),
           batch_done: true
         },
@@ -467,16 +579,16 @@ const updateStatus = node({
   version: 1.1,
   config: {
     name: 'Обновить статус лида',
-    position: [3800, 420],
+    position: [4440, 420],
     parameters: {
       resource: 'row',
       operation: 'update',
       dataTableId: leadsTable,
       matchType: 'allConditions',
-      filters: { conditions: [{ keyName: 'user_id', condition: 'eq', keyValue: expr("{{ $('Ядро бота (заглушка ИИ)').first().json.user_id }}") }] },
+      filters: { conditions: [{ keyName: 'user_id', condition: 'eq', keyValue: expr("{{ $('Разбор ответа ИИ').first().json.user_id }}") }] },
       columns: {
         mappingMode: 'defineBelow',
-        value: { status: expr("{{ $('Ядро бота (заглушка ИИ)').first().json.new_status }}") },
+        value: { status: expr("{{ $('Разбор ответа ИИ').first().json.new_status }}") },
         schema: [{ id: 'status', displayName: 'status', required: false, defaultMatch: false, display: true, type: 'string', canBeUsedToMatch: true }]
       }
     }
@@ -489,16 +601,16 @@ const escData = node({
   version: 2,
   config: {
     name: 'Данные эскалации',
-    position: [3140, 760],
+    position: [4000, 760],
     parameters: {
       mode: 'runOnceForAllItems',
       language: 'javaScript',
-      jsCode: `// Единые данные для эскалации: приходят либо из склейки (просьба позвать менеджера), либо сразу (голосовое)
+      jsCode: `// Единые данные для эскалации: либо решение ИИ, либо голосовое сообщение (минуя ИИ)
 let src = null;
-try { src = $('Склейка и решение').first().json; } catch (e) { src = null; }
+try { src = $('Разбор ответа ИИ').first().json; } catch (e) { src = null; }
 if (!src) {
   const s = $('Состояние лида').first().json;
-  src = { user_id: s.user_id, username: s.username, name: s.name, ad_ref: s.lead_ad_ref, combined: '[голосовое сообщение]', reason: 'голосовое сообщение' };
+  src = { user_id: s.user_id, username: s.username, name: s.name, ad_ref: s.lead_ad_ref, combined: '[голосовое сообщение]', reason: 'голосовое сообщение', summary: '' };
 }
 const esc = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const link = src.username ? 'https://t.me/' + src.username : 'tg://user?id=' + src.user_id;
@@ -507,7 +619,8 @@ const text =
   '👤 ' + esc(src.name) + (src.username ? ' (@' + esc(src.username) + ')' : '') + '\\n' +
   '🔗 <a href="' + link + '">Открыть чат с клиентом</a>\\n' +
   '📣 Реклама: ' + esc(src.ad_ref || '—') + '\\n' +
-  '📝 ' + esc(String(src.combined).slice(0, 500)) + '\\n\\n' +
+  (src.summary ? '🧭 Суть: ' + esc(src.summary) + '\\n' : '') +
+  '📝 Последнее: ' + esc(String(src.combined).slice(0, 500)) + '\\n\\n' +
   '<i>тест через Telegram</i>';
 return [{ json: { ...src, group_text: text } }];`
     }
@@ -520,7 +633,7 @@ const pauseLead = node({
   version: 1.1,
   config: {
     name: 'Пауза бота на 24 ч',
-    position: [3360, 760],
+    position: [4220, 760],
     parameters: {
       resource: 'row',
       operation: 'update',
@@ -552,7 +665,7 @@ const tellClient = node({
   version: 1.2,
   config: {
     name: 'Клиенту: передаём менеджеру',
-    position: [3580, 760],
+    position: [4440, 760],
     parameters: {
       resource: 'message',
       operation: 'sendMessage',
@@ -571,7 +684,7 @@ const notifyManagers = node({
   version: 1.2,
   config: {
     name: 'Уведомить менеджеров',
-    position: [3800, 760],
+    position: [4660, 760],
     parameters: {
       resource: 'message',
       operation: 'sendMessage',
@@ -730,7 +843,7 @@ const markResumed = node({
   output: [{ ok: true }]
 });
 
-const note = sticky('## Yonda — каркас бота (тест в Telegram)\nКлиент пишет боту в личку → склейка 15 с → ответ (пока заглушка вместо ИИ).\nГолосовое или просьба «менеджер» → пауза бота на 24 ч + уведомление в группу менеджеров с кнопками.\nРеклама: ссылка t.me/<бот>?start=ALB-001 сохраняет метку товара в лида.\nДанные: таблицы yonda_leads и yonda_messages.', [], { color: 4, position: [0, -260], width: 620, height: 220 });
+const note = sticky('## Yonda — каркас бота (тест в Telegram)\nКлиент пишет боту в личку → склейка 15 с → ИИ-продавец (Gemini, тест) → ответ.\nГолосовое или решение ИИ (просьба менеджера, скидка, скриншот оплаты, нет данных) → пауза бота на 24 ч + уведомление в группу менеджеров с кнопками.\nРеклама: ссылка t.me/<бот>?start=ALB-001 сохраняет метку товара в лида.\nДанные: таблицы yonda_leads и yonda_messages.', [], { color: 4, position: [0, -260], width: 620, height: 220 });
 
 export default workflow('yonda-tg-skeleton', 'Yonda Bot — каркас (Telegram)')
   .add(tgIn)
@@ -742,9 +855,15 @@ export default workflow('yonda-tg-skeleton', 'Yonda Bot — каркас (Telegr
       .onCase(0, escData.to(pauseLead).to(tellClient).to(notifyManagers))
       .onCase(1, greet)
       .onCase(2, waitDebounce.to(getLatest).to(isLatest
-        .onTrue(getBatch.to(combine).to(routeReply
-          .onCase(0, coreStub.to(sendReply).to(saveBotMsg).to(updateStatus))
+        .onTrue(getBatch.to(combine).to(getHistory).to(buildContext).to(aiSeller).to(parseAi).to(routeReply
+          .onCase(0, sendReply.to(saveBotMsg).to(updateStatus))
           .onCase(1, escData))))))))
   .add(combine)
   .to(markDone)
-  .add(note);
+  .add(note)
+  .group('Кнопки менеджеров', [parseCb, answerCb, routeButton, markTaken, unpauseLead, markResumed], { description: 'Нажатия «Взял в работу» / «Вернуть бота» в группе менеджеров' })
+  .group('Приём сообщения', [normalize, getLead, leadState, upsertLead, saveUserMsg], { description: 'Единый формат сообщения, состояние лида, запись в историю' })
+  .group('Склейка 15 с', [waitDebounce, getLatest, isLatest, getBatch], { description: 'Ждём, пока клиент допишет, и берём все новые сообщения разом' })
+  .group('ИИ-продавец', [combine, markDone, getHistory, buildContext, aiSeller, geminiModel, replyParser, parseAi], { description: 'История + Gemini: ответ клиенту, статус и решение о передаче менеджеру' })
+  .group('Ответ клиенту', [sendReply, saveBotMsg, updateStatus], { description: 'Отправка ответа, запись в историю, обновление статуса лида' })
+  .group('Эскалация', [escData, pauseLead, tellClient, notifyManagers], { description: 'Пауза бота на 24 ч и карточка клиента в группу менеджеров' });
